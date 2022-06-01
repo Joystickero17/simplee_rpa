@@ -25,6 +25,7 @@ coverage = "==6.1.2"
 django-celery-beat = "==2.2.1"
 requests = "*"
 drf-nested-routers = "*"
+bs4 = "*"
 
 [requires]
 python_version = "3.8"
