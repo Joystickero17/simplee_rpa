@@ -27,7 +27,7 @@ SECRET_KEY = 'django-insecure-i_60wkxb@ac9(2k^f(l(=4828%n(g&z%m&dqp*o79610m*vgft
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["simplee-rpa.herokuapp.com"]
 
 
 # Application definition
