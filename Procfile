@@ -1,4 +1,4 @@
-web: daphne simplee_rpa.asgi:application --port $PORT --bind 0.0.0.0 -v2
+web: gunicorn simplee_rpa.wsgi
 celeryworker: celery -A simplee_rpa worker 
 release: python manage.py migrate
 beat: celery -A simplee_rpa beat
