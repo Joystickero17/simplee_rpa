@@ -26,6 +26,12 @@ def debug_task(self):
 app.conf.beat_schedule = {
     'check-bidding-list': {
         'task': 'core.tasks.check_bidding_list',
-        'schedule': 30,
+        'schedule': crontab(hour="*/6"),
     },
+    'send_to_ac': {
+        'task': 'core.tasks.send_biddings_to_active_campaing',
+        'schedule': 30,
+        # 'schedule': crontab(hour="*/12"),
+    },
+
 }

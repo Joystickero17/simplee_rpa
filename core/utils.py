@@ -3,10 +3,11 @@ from pprint import pprint
 import requests
 from django.utils.timezone import datetime, now, timedelta
 from core.models import Contact, Bidding
+from bs4 import BeautifulSoup
 from django.conf import settings
 import time
 
-API_TOKEN = settings.EXTERNAL_USER_TOKEN
+
 URL =  "http://api.mercadopublico.cl/servicios/v1/Publico/Licitaciones/"
 TICKET = "471052E9-58E8-4217-9CAB-7935F177B353"
 CATEGORIES = [
@@ -32,22 +33,63 @@ CATEGORIES = [
     ("30201600", "Construcciones residenciales prefabricadas"),
 ]
 
-def get_biddings():
-    for day in range(15):
-        date = (now() - timedelta(days=day)).strftime("%d%m%Y")
-        print(f"Checking biddings for date {date}")
-        response = requests.get(f'{URL}?ticket={TICKET}&fecha={date}&estado=adjudicada')
-        
-        listado = response.json().get("Listado")
-        if not listado:
-            print(f"failed to get Biddings in date {date}, reason: {response.json()}")
-        get_contacts_from_bidding(listado)
-        time.sleep(2)
+def get_simplee_token():
+    payload = {"email":"prueba@simplee.cl", "password":"27853607"}
+    response = requests.post("https://simplee-drf.herokuapp.com/api/auth/login/", data=payload)
+    if response.status_code == 201:
+        return response.json()["token"]
 
-def get_contacts_from_bidding(bidding_list):
+def get_biddings():
+    today = now().isoformat()[:-9]+'Z'
+    biddings_codes = []
+    results = 0
+    total_pages = 0
+    page = 1
+    # for day in range(15):
+    date = (now() - timedelta(days=15)).isoformat()[:-9]+'Z'
+    while True:
+        payload = {
+            'codigoRegion': "-1",
+            'compradores': [],
+            'esPublicoMontoEstimado': None,
+            'fechaFin': today,
+            'fechaInicio': date,
+            'garantias': None,
+            'idEstado': "8",
+            'idOrden': "1",
+            'idTipoFecha': [],
+            'idTipoLicitacion': "-1",
+            'montoEstimadoTipo': [0],
+            'pagina': page,
+            'proveedores': [],
+            'registrosPorPagina': "10",
+            'rubros': list(dict(CATEGORIES).keys()),
+            'textoBusqueda': ""
+            }
+        #pprint(payload)
+        response = requests.post("https://www.mercadopublico.cl/BuscarLicitacion/Home/Buscar", data=payload)
+        soup = BeautifulSoup(response.text, features="html.parser")
+        result_span = soup.find("span", {"class": "n-result"})
+        if result_span:
+            results = int(result_span.text)
+            total_pages = results / 10
+        if page >= total_pages:
+            break
+        else:
+            page += 1
+        print(f"results of scraping:{results} page:{page} date range: {now().date()} - {date}")
+        raw_spans = soup.find_all("span", {"class":"clearfix"}, partial=False)
+        spans = [tag.text.strip() for tag in raw_spans if tag.get("class") == ["clearfix"] and tag.text.strip() not in biddings_codes]
+        # if not spans:
+        #     break
+        biddings_codes.extend(spans)
+    return biddings_codes
+        
+
+def get_contacts_from_bidding(bidding_list, user_token=None):
     for bidding in bidding_list:
         time.sleep(2)
-        bidding_raw_info = requests.get(f'{URL}?codigo={bidding["CodigoExterno"]}&ticket={TICKET}')        
+        bidding_raw_info = requests.get(f'{URL}?codigo={bidding}&ticket={TICKET}')        
         bidding_info = bidding_raw_info.json()
         # if bidding_info.get("codigoCategoria") in dict(CATEGORIES).keys():
         adjudications_items = bidding_info.get("Listado")[0]
@@ -61,7 +103,7 @@ def get_contacts_from_bidding(bidding_list):
             continue
         
         contact = adjudication.get("Adjudicacion")
-        print(contact, bidding["CodigoExterno"])
+        print(contact, bidding)
 
         if adjudication["CodigoCategoria"] not in dict(CATEGORIES).keys():
             print(f"{adjudication['CodigoCategoria']} not in interested categories\n")
@@ -78,7 +120,8 @@ def get_contacts_from_bidding(bidding_list):
                 published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
                 external_code=adjudications_items.get("CodigoExterno"),
                 contact=result_contact,
-                category_code=adjudication.get("CodigoCategoria") 
+                category_code=adjudication.get("CodigoCategoria"),
+                activity=adjudication.get("Categoria")
             )
             bidding.save()
             print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
@@ -88,26 +131,30 @@ def get_contacts_from_bidding(bidding_list):
 
         print(f"Trying to Search in Leads Endpoint, RUT: {providers_rut_colon}")
         headers = {
-            "Authorization": f"Bearer {API_TOKEN}"
+            "Authorization": f"Bearer {user_token}"
         }
         raw_response = requests.get(f"http://simplee-drf.herokuapp.com/api/lead/?rut={providers_rut_colon}", headers=headers)
         response = raw_response.json()
         leads_list = response.get("results")
         if leads_list:
             rut = leads_list[0].get("rut").replace(".", "")
-            new_contact = Contact.objects.create(
-                name=f'{leads_list[0].get("name")} {leads_list[0].get("last_name")}',
-                rut= rut,
-                phone=leads_list[0].get("phone"),
-                email=leads_list[0].get("email")
-                )
+            try:
+                new_contact = Contact.objects.get(rut=rut)
+            except Contact.DoesNotExist as e:
+                new_contact = Contact.objects.create(
+                    name=f'{leads_list[0].get("name")} {leads_list[0].get("last_name")}',
+                    rut= rut,
+                    phone=leads_list[0].get("phone"),
+                    email=leads_list[0].get("email")
+                    )
 
             bidding = Bidding(
                 adjudicated_date=adjudications_items.get("Fechas").get("FechaAdjudicacion"),
                 published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
                 external_code=adjudications_items.get("CodigoExterno"),
                 contact=new_contact,
-                category_code=adjudication.get("CodigoCategoria") 
+                category_code=adjudication.get("CodigoCategoria"),
+                activity=adjudication.get("Categoria"), 
             )
             bidding.save()
             print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
