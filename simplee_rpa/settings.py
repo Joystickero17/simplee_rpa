@@ -137,6 +137,6 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-BROKER_URL = os.getenv("BROKER_URL", "redis://127.0.0.1:6380")
+BROKER_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6380")
 
 EXTERNAL_USER_TOKEN = os.getenv("EXTERNAL_USER_TOKEN")
