@@ -12,7 +12,7 @@ class Contact(models.Model):
 class Bidding(models.Model):
     adjudicated_date = models.DateTimeField(null=True)
     published_date = models.DateTimeField(null=True)
-    external_code = models.CharField(max_length=255)
+    external_code = models.CharField(max_length=255, unique=True)
     contact = models.ForeignKey(Contact, on_delete=models.CASCADE)
     category_code = models.CharField(max_length=255)
     activity = models.CharField(max_length=255)

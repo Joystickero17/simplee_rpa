@@ -45,7 +45,6 @@ def get_biddings():
     results = 0
     total_pages = 0
     page = 1
-    # for day in range(15):
     date = (now() - timedelta(days=15)).isoformat()[:-9]+'Z'
     while True:
         payload = {
@@ -109,12 +108,22 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
             print(f"{adjudication['CodigoCategoria']} not in interested categories\n")
             continue
 
+        print("consultando BD")
+        providers_rut_colon = contact.get("RutProveedor").replace(".","")
+        providers_rut_plain = contact.get("RutProveedor").replace(".","").replace("-","")
         try:
-            print("consultando BD")
-            providers_rut_colon = contact.get("RutProveedor").replace(".","")
-            providers_rut_plain = contact.get("RutProveedor").replace(".","").replace("-","")
             result_contact = Contact.objects.get(rut=providers_rut_plain)
-            
+            print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
+            continue
+        except Contact.DoesNotExist as e:
+            print(f"RUT {providers_rut_plain} does not exists in the records")
+        
+        try:
+            bidding = Bidding.objects.get(external_code=adjudications_items.get("CodigoExterno"))
+        except Bidding.DoesNotExist as b:
+            bidding = None
+
+        if not bidding:
             bidding = Bidding(
                 adjudicated_date=adjudications_items.get("Fechas").get("FechaAdjudicacion"),
                 published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
@@ -124,10 +133,7 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
                 activity=adjudication.get("Categoria")
             )
             bidding.save()
-            print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
             continue
-        except Contact.DoesNotExist as e:
-            print(f"RUT {providers_rut_plain} does not exists in the records")
 
         print(f"Trying to Search in Leads Endpoint, RUT: {providers_rut_colon}")
         headers = {
@@ -141,6 +147,15 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
             try:
                 new_contact = Contact.objects.get(rut=rut)
             except Contact.DoesNotExist as e:
+                new_contact = None
+                 
+            try:
+                bidding = Bidding.objects.get(external_code=adjudications_items.get("CodigoExterno"))
+            except Bidding.DoesNotExist as b:
+                bidding = None
+
+
+            if not new_contact:
                 new_contact = Contact.objects.create(
                     name=f'{leads_list[0].get("name")} {leads_list[0].get("last_name")}',
                     rut= rut,
@@ -148,15 +163,16 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
                     email=leads_list[0].get("email")
                     )
 
-            bidding = Bidding(
-                adjudicated_date=adjudications_items.get("Fechas").get("FechaAdjudicacion"),
-                published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
-                external_code=adjudications_items.get("CodigoExterno"),
-                contact=new_contact,
-                category_code=adjudication.get("CodigoCategoria"),
-                activity=adjudication.get("Categoria"), 
-            )
-            bidding.save()
+            if not bidding:
+                bidding = Bidding(
+                    adjudicated_date=adjudications_items.get("Fechas").get("FechaAdjudicacion"),
+                    published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
+                    external_code=adjudications_items.get("CodigoExterno"),
+                    contact=new_contact,
+                    category_code=adjudication.get("CodigoCategoria"),
+                    activity=adjudication.get("Categoria"), 
+                )
+                bidding.save()
             print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
         else:
             print(f"Not Found RUT: {providers_rut_colon} \n")
