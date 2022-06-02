@@ -1,10 +1,9 @@
-import logging
+import csv
 from pprint import pprint
 import requests
 from django.utils.timezone import datetime, now, timedelta
 from core.models import Contact, Bidding
 from bs4 import BeautifulSoup
-from django.conf import settings
 import time
 
 
@@ -32,6 +31,20 @@ CATEGORIES = [
     ("30223000", "Construcciones religiosas"),
     ("30201600", "Construcciones residenciales prefabricadas"),
 ]
+
+def search_contact_in_csv(rut):
+    with open("pymes.csv", encoding='utf-8') as f:
+        csv_reader = csv.reader(f, delimiter=";")
+        contact_result = next((row for row in csv_reader if row[1] == rut), None)
+        if contact_result:
+            contact = {
+            "rut": contact_result[1],
+            "name": contact_result[0],
+            "activity": contact_result[3],
+            "phone": contact_result[14],
+            "email": contact_result[16],
+            }
+            return contact
 
 def get_simplee_token():
     payload = {"email":"prueba@simplee.cl", "password":"27853607"}
@@ -82,7 +95,7 @@ def get_biddings():
         # if not spans:
         #     break
         biddings_codes.extend(spans)
-    return biddings_codes
+    return list(set(biddings_codes))
         
 
 def get_contacts_from_bidding(bidding_list, user_token=None):
@@ -91,9 +104,10 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
         bidding_raw_info = requests.get(f'{URL}?codigo={bidding}&ticket={TICKET}')        
         bidding_info = bidding_raw_info.json()
         # if bidding_info.get("codigoCategoria") in dict(CATEGORIES).keys():
-        adjudications_items = bidding_info.get("Listado")[0]
-        if not adjudications_items:
+        bidding_results = bidding_info.get("Listado")
+        if not bidding_results:
             continue
+        adjudications_items = bidding_results[0]
         adjudication_list = adjudications_items.get("Items").get("Listado")
         adjudication = next((subject for subject in adjudication_list if subject.get("Adjudicacion")), None)
         
@@ -111,29 +125,38 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
         print("consultando BD")
         providers_rut_colon = contact.get("RutProveedor").replace(".","")
         providers_rut_plain = contact.get("RutProveedor").replace(".","").replace("-","")
-        try:
-            result_contact = Contact.objects.get(rut=providers_rut_plain)
-            print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
-            continue
-        except Contact.DoesNotExist as e:
-            print(f"RUT {providers_rut_plain} does not exists in the records")
         
-        try:
-            bidding = Bidding.objects.get(external_code=adjudications_items.get("CodigoExterno"))
-        except Bidding.DoesNotExist as b:
-            bidding = None
+        result_contact = search_contact_in_csv(providers_rut_plain)
+        if result_contact:
+            try:
+                existing_contact = Contact.objects.get(rut=providers_rut_plain)
+            except Contact.DoesNotExist as b:
+                existing_contact = None
+            
+            if not existing_contact:
+                existing_contact = Contact(**result_contact)
+                existing_contact.save()
+                print(f"Succesfull Found Contacts for RUT:{providers_rut_colon} \n")
+            
+            try:
+                bidding = Bidding.objects.get(external_code=adjudications_items.get("CodigoExterno"))
+            except Bidding.DoesNotExist as b:
+                bidding = None
 
-        if not bidding:
-            bidding = Bidding(
-                adjudicated_date=adjudications_items.get("Fechas").get("FechaAdjudicacion"),
-                published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
-                external_code=adjudications_items.get("CodigoExterno"),
-                contact=result_contact,
-                category_code=adjudication.get("CodigoCategoria"),
-                activity=adjudication.get("Categoria")
-            )
-            bidding.save()
-            continue
+            if not bidding:
+                bidding = Bidding(
+                    adjudicated_date=adjudications_items.get("Fechas").get("FechaAdjudicacion"),
+                    published_date=adjudications_items.get("Fechas").get("FechaPublicacion"),
+                    external_code=adjudications_items.get("CodigoExterno"),
+                    contact=result_contact,
+                    category_code=adjudication.get("CodigoCategoria"),
+                    activity=adjudication.get("Categoria")
+                )
+                bidding.save()
+                continue
+        else:
+            print(f"RUT {providers_rut_plain} does not exists in the records, neither CSV nor DB.")
+        
 
         print(f"Trying to Search in Leads Endpoint, RUT: {providers_rut_colon}")
         headers = {
@@ -158,7 +181,7 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
             if not new_contact:
                 new_contact = Contact.objects.create(
                     name=f'{leads_list[0].get("name")} {leads_list[0].get("last_name")}',
-                    rut= rut,
+                    rut= rut.replace("-",""),
                     phone=leads_list[0].get("phone"),
                     email=leads_list[0].get("email")
                     )
