@@ -8,7 +8,9 @@ class Contact(models.Model):
     email = models.EmailField(null=True)
     phone = models.CharField(max_length=255, null=True)
     activity = models.CharField(max_length=255)
-
+    def save(self, *args, **kwargs):
+        self.rut = self.rut.replace(".", "").replace("-","")
+        return super().save(*args, **kwargs)
 class Bidding(models.Model):
     adjudicated_date = models.DateTimeField(null=True)
     published_date = models.DateTimeField(null=True)

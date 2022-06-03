@@ -166,7 +166,7 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
         response = raw_response.json()
         leads_list = response.get("results")
         if leads_list:
-            rut = leads_list[0].get("rut").replace(".", "")
+            rut = leads_list[0].get("rut")
             try:
                 new_contact = Contact.objects.get(rut=rut)
             except Contact.DoesNotExist as e:
@@ -181,7 +181,7 @@ def get_contacts_from_bidding(bidding_list, user_token=None):
             if not new_contact:
                 new_contact = Contact.objects.create(
                     name=f'{leads_list[0].get("name")} {leads_list[0].get("last_name")}',
-                    rut= rut.replace("-",""),
+                    rut= rut,
                     phone=leads_list[0].get("phone"),
                     email=leads_list[0].get("email")
                     )
